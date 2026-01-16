@@ -59,7 +59,7 @@ export const checklistAPI = {
 // Dashboard API
 export const dashboardAPI = {
   getDashboard: () => api.get('/dashboard'),
-  getServiceDetails: (serviceId) => api.get(`/services/${serviceId}`),
+  getSubmissionDetails: (submissionId) => api.get(`/submissions/${submissionId}`),
   getLocations: () => api.get('/locations'),
   getVendors: () => api.get('/vendors'),
   getIVRs: () => api.get('/ivrs'),

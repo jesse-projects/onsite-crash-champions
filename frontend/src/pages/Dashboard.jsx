@@ -5,7 +5,7 @@ import { dashboardAPI, authAPI } from '../utils/api';
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
-  const [selectedService, setSelectedService] = useState(null);
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [filter, setFilter] = useState({ status: 'all', search: '', accountManager: 'all' });
   const user = authAPI.getUser();
 
@@ -24,12 +24,12 @@ export default function Dashboard() {
     }
   };
 
-  const viewServiceDetails = async (serviceId) => {
+  const viewSubmissionDetails = async (submissionId) => {
     try {
-      const response = await dashboardAPI.getServiceDetails(serviceId);
-      setSelectedService(response.data);
+      const response = await dashboardAPI.getSubmissionDetails(submissionId);
+      setSelectedSubmission(response.data);
     } catch (err) {
-      console.error('Failed to load service details:', err);
+      console.error('Failed to load submission details:', err);
     }
   };
 
@@ -43,34 +43,46 @@ export default function Dashboard() {
 
   const getStatusBadge = (status) => {
     const statusMap = {
-      'Completed': 'badge-success',
-      'Not Started': 'badge-warning',
-      'In Progress': 'badge-info',
-      'Overdue': 'badge-error',
-      'Incomplete': 'badge-error'
+      'current': 'badge-success',
+      'stale': 'badge-warning',
+      'overdue': 'badge-error'
     };
     return `badge ${statusMap[status] || 'badge-info'}`;
   };
 
-  const filteredServices = data?.services.filter(service => {
-    const matchesStatus = filter.status === 'all' || service.status === filter.status;
-    const matchesSearch = !filter.search ||
-      service.location_name.toLowerCase().includes(filter.search.toLowerCase()) ||
-      service.ivr_ticket_number?.toLowerCase().includes(filter.search.toLowerCase());
-    const matchesAccountManager = filter.accountManager === 'all' || service.account_manager_id === filter.accountManager;
-    return matchesStatus && matchesSearch && matchesAccountManager;
-  }) || [];
+  const getStatusLabel = (status) => {
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
 
-  // Calculate stats based on filtered data
+  // Helper function to calculate location staleness status
+  const getLocationStatus = (location) => {
+    if (!location.last_submission_date) return 'overdue';
+
+    const now = new Date();
+    const lastService = new Date(location.last_submission_date);
+    const daysSinceService = Math.floor((now - lastService) / (1000 * 60 * 60 * 24));
+    const interval = location.service_interval_days || 7;
+
+    if (daysSinceService <= interval) return 'current';
+    else if (daysSinceService <= interval * 1.5) return 'stale';
+    else return 'overdue';
+  };
+
   const filteredLocations = data?.locations.filter(location => {
-    return filter.accountManager === 'all' || location.account_manager_id === filter.accountManager;
+    const status = getLocationStatus(location);
+    const matchesStatus = filter.status === 'all' || status === filter.status;
+    const matchesSearch = !filter.search ||
+      location.location_name.toLowerCase().includes(filter.search.toLowerCase()) ||
+      location.location_id?.toLowerCase().includes(filter.search.toLowerCase());
+    const matchesAccountManager = filter.accountManager === 'all' || location.account_manager_id === filter.accountManager;
+    return matchesStatus && matchesSearch && matchesAccountManager;
   }) || [];
 
   const filteredStats = {
     totalLocations: filteredLocations.length,
-    pendingServices: filteredServices.filter(s => s.status === 'Not Started').length,
-    completedServices: filteredServices.filter(s => s.status === 'Completed').length,
-    overdueServices: filteredServices.filter(s => s.status === 'Overdue').length
+    currentServices: filteredLocations.filter(l => getLocationStatus(l) === 'current').length,
+    staleServices: filteredLocations.filter(l => getLocationStatus(l) === 'stale').length,
+    overdueServices: filteredLocations.filter(l => getLocationStatus(l) === 'overdue').length
   };
 
   if (loading) {
@@ -104,16 +116,16 @@ export default function Dashboard() {
           </div>
 
           <div className="stat-card">
-            <div className="stat-label">Pending Services</div>
-            <div className="stat-value" style={{ color: 'var(--color-warning)' }}>
-              {filteredStats.pendingServices}
+            <div className="stat-label">Current</div>
+            <div className="stat-value" style={{ color: 'var(--color-success)' }}>
+              {filteredStats.currentServices}
             </div>
           </div>
 
           <div className="stat-card">
-            <div className="stat-label">Completed</div>
-            <div className="stat-value" style={{ color: 'var(--color-success)' }}>
-              {filteredStats.completedServices}
+            <div className="stat-label">Stale</div>
+            <div className="stat-value" style={{ color: 'var(--color-warning)' }}>
+              {filteredStats.staleServices}
             </div>
           </div>
 
@@ -163,23 +175,22 @@ export default function Dashboard() {
                 onChange={(e) => setFilter(prev => ({ ...prev, status: e.target.value }))}
               >
                 <option value="all">All Statuses</option>
-                <option value="Not Started">Not Started</option>
-                <option value="Completed">Completed</option>
-                <option value="Overdue">Overdue</option>
-                <option value="Incomplete">Incomplete</option>
+                <option value="current">Current</option>
+                <option value="stale">Stale</option>
+                <option value="overdue">Overdue</option>
               </select>
             </div>
           </div>
         </div>
 
-        {/* Services Table */}
+        {/* Locations Table */}
         <div className="card" style={{ padding: 0 }}>
           <div style={{ padding: 'var(--space-xl)', borderBottom: '1px solid var(--color-border)' }}>
             <h2 className="card-title" style={{ marginBottom: 0 }}>
-              Service Activity
+              Location Status
             </h2>
             <p className="text-secondary text-sm" style={{ marginTop: 'var(--space-xs)' }}>
-              {filteredServices.length} service{filteredServices.length !== 1 ? 's' : ''}
+              {filteredLocations.length} location{filteredLocations.length !== 1 ? 's' : ''}
             </p>
           </div>
 
@@ -188,51 +199,68 @@ export default function Dashboard() {
               <thead>
                 <tr>
                   <th>Location</th>
-                  <th>IVR Number</th>
-                  <th>Period</th>
+                  <th>Subcontractor</th>
                   <th>Status</th>
-                  <th>Scheduled</th>
-                  <th>Submitted</th>
-                  <th style={{ width: '120px' }}>Actions</th>
+                  <th>Last Service</th>
+                  <th>Days Since</th>
+                  <th>Interval</th>
+                  <th style={{ width: '180px' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredServices.length === 0 ? (
+                {filteredLocations.length === 0 ? (
                   <tr>
                     <td colSpan="7" className="text-center text-secondary" style={{ padding: 'var(--space-2xl)' }}>
-                      No services found
+                      No locations found
                     </td>
                   </tr>
                 ) : (
-                  filteredServices.map(service => (
-                    <tr key={service.service_id} onClick={() => viewServiceDetails(service.service_id)}>
-                      <td>
-                        <div style={{ fontWeight: 500 }}>{service.location_name}</div>
-                        <div className="text-secondary text-sm mono">{service.location_id}</div>
-                      </td>
-                      <td className="mono text-sm">{service.ivr_ticket_number || 'N/A'}</td>
-                      <td className="text-sm">{service.period_label || 'N/A'}</td>
-                      <td>
-                        <span className={getStatusBadge(service.status)}>
-                          {service.status}
-                        </span>
-                      </td>
-                      <td className="text-sm">
-                        {service.scheduled_date ? new Date(service.scheduled_date).toLocaleDateString() : 'N/A'}
-                      </td>
-                      <td className="text-sm">
-                        {service.submitted_date ? new Date(service.submitted_date).toLocaleDateString() : '-'}
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={(e) => copyChecklistUrl(e, service.location_id)}
-                        >
-                          Copy URL
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  filteredLocations.map(location => {
+                    const status = getLocationStatus(location);
+                    const daysSince = location.last_submission_date
+                      ? Math.floor((new Date() - new Date(location.last_submission_date)) / (1000 * 60 * 60 * 24))
+                      : null;
+
+                    return (
+                      <tr
+                        key={location.location_id}
+                        style={{ cursor: location.last_submission_id ? 'pointer' : 'default' }}
+                        onClick={() => location.last_submission_id && viewSubmissionDetails(location.last_submission_id)}
+                      >
+                        <td>
+                          <div style={{ fontWeight: 500 }}>{location.location_name}</div>
+                          <div className="text-secondary text-sm mono">{location.location_id}</div>
+                        </td>
+                        <td className="text-sm">{location.subcontractor_name || 'Unassigned'}</td>
+                        <td>
+                          <span className={getStatusBadge(status)}>
+                            {getStatusLabel(status)}
+                          </span>
+                        </td>
+                        <td className="text-sm">
+                          {location.last_submission_date
+                            ? new Date(location.last_submission_date).toLocaleDateString()
+                            : 'Never'}
+                        </td>
+                        <td className="text-sm">
+                          {daysSince !== null ? `${daysSince} day${daysSince !== 1 ? 's' : ''}` : '-'}
+                        </td>
+                        <td className="text-sm">
+                          {location.service_interval_days} days
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 'var(--space-xs)' }}>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={(e) => copyChecklistUrl(e, location.location_id)}
+                            >
+                              Copy URL
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -240,57 +268,55 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Service Details Modal */}
-      {selectedService && (
-        <div className="modal-overlay" onClick={() => setSelectedService(null)}>
+      {/* Submission Details Modal */}
+      {selectedSubmission && (
+        <div className="modal-overlay" onClick={() => setSelectedSubmission(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 style={{ marginBottom: '0.5rem' }}>{selectedService.location_name}</h2>
+              <h2 style={{ marginBottom: '0.5rem' }}>{selectedSubmission.location_name}</h2>
               <p className="text-secondary">
-                {selectedService.address}, {selectedService.city}, {selectedService.state}
+                {selectedSubmission.address}, {selectedSubmission.city}, {selectedSubmission.state}
               </p>
             </div>
 
             <div className="modal-body">
-              {/* Service Info */}
+              {/* Submission Info */}
               <div style={{ marginBottom: 'var(--space-xl)' }}>
-                <h3 style={{ marginBottom: 'var(--space-md)' }}>Service Information</h3>
+                <h3 style={{ marginBottom: 'var(--space-md)' }}>Submission Information</h3>
                 <div className="grid grid-2" style={{ gap: 'var(--space-md)' }}>
                   <div>
                     <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
                       IVR Number
                     </div>
-                    <div className="mono">{selectedService.ivr_ticket_number || 'N/A'}</div>
+                    <div className="mono">{selectedSubmission.ivr_ticket_number || 'N/A'}</div>
                   </div>
                   <div>
                     <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
-                      Status
+                      Submitted By
                     </div>
-                    <span className={getStatusBadge(selectedService.status)}>
-                      {selectedService.status}
-                    </span>
-                  </div>
-                  <div>
-                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
-                      Scheduled Date
-                    </div>
-                    <div>{selectedService.scheduled_date ? new Date(selectedService.scheduled_date).toLocaleDateString() : 'N/A'}</div>
+                    <div>{selectedSubmission.submitted_by || 'N/A'}</div>
                   </div>
                   <div>
                     <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
                       Submitted Date
                     </div>
-                    <div>{selectedService.submitted_date ? new Date(selectedService.submitted_date).toLocaleDateString() : '-'}</div>
+                    <div>{selectedSubmission.submitted_date ? new Date(selectedSubmission.submitted_date).toLocaleDateString() : '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                      Subcontractor
+                    </div>
+                    <div>{selectedSubmission.subcontractor_name || 'N/A'}</div>
                   </div>
                 </div>
               </div>
 
               {/* Checklist Data */}
-              {selectedService.checklist_data && (
+              {selectedSubmission.checklist_data && (
                 <div style={{ marginBottom: 'var(--space-xl)' }}>
                   <h3 style={{ marginBottom: 'var(--space-md)' }}>Checklist Responses</h3>
                   <div style={{ background: 'var(--color-bg-primary)', padding: 'var(--space-lg)', borderRadius: 'var(--radius-md)' }}>
-                    {Object.entries(selectedService.checklist_data).map(([key, value]) => (
+                    {Object.entries(selectedSubmission.checklist_data).map(([key, value]) => (
                       <div key={key} style={{ marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
                         <span style={{ fontSize: '1.25rem' }}>{value ? '✓' : '✗'}</span>
                         <span style={{ textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
@@ -301,21 +327,21 @@ export default function Dashboard() {
               )}
 
               {/* Notes */}
-              {selectedService.notes && (
+              {selectedSubmission.notes && (
                 <div style={{ marginBottom: 'var(--space-xl)' }}>
                   <h3 style={{ marginBottom: 'var(--space-md)' }}>Notes</h3>
                   <div style={{ background: 'var(--color-bg-primary)', padding: 'var(--space-lg)', borderRadius: 'var(--radius-md)' }}>
-                    {selectedService.notes}
+                    {selectedSubmission.notes}
                   </div>
                 </div>
               )}
 
               {/* Photos */}
-              {selectedService.photos && selectedService.photos.length > 0 && (
+              {selectedSubmission.photos && selectedSubmission.photos.length > 0 && (
                 <div>
-                  <h3 style={{ marginBottom: 'var(--space-md)' }}>Photos ({selectedService.photos.length})</h3>
+                  <h3 style={{ marginBottom: 'var(--space-md)' }}>Photos ({selectedSubmission.photos.length})</h3>
                   <div className="photo-preview-grid">
-                    {selectedService.photos.map(photo => (
+                    {selectedSubmission.photos.map(photo => (
                       <div key={photo.photo_id} className="photo-preview">
                         <img src={`/api${photo.file_path}`} alt={photo.photo_type} />
                       </div>
@@ -327,7 +353,7 @@ export default function Dashboard() {
 
             <div className="modal-footer">
               <button
-                onClick={() => setSelectedService(null)}
+                onClick={() => setSelectedSubmission(null)}
                 className="btn btn-secondary"
               >
                 Close
