@@ -491,18 +491,24 @@ app.get('/api/locations', authenticateToken, async (req, res) => {
 // VENDORS (SUBCONTRACTORS) ROUTES
 // ========================================
 
-// Get all vendors with their assigned locations
+// Get all vendors with their assigned locations and submissions
 app.get('/api/vendors', authenticateToken, async (req, res) => {
     try {
+        // Get vendors with locations
         const vendorsResult = await pool.query(`
             SELECT s.*,
                    json_agg(
-                       json_build_object(
+                       DISTINCT jsonb_build_object(
                            'location_id', l.location_id,
                            'location_name', l.location_name,
                            'city', l.city,
                            'state', l.state
-                       ) ORDER BY l.location_name
+                       ) ORDER BY jsonb_build_object(
+                           'location_id', l.location_id,
+                           'location_name', l.location_name,
+                           'city', l.city,
+                           'state', l.state
+                       )
                    ) FILTER (WHERE l.location_id IS NOT NULL) as locations
             FROM subcontractors s
             LEFT JOIN locations l ON s.subcontractor_id = l.subcontractor_id AND l.is_active = true
@@ -511,7 +517,40 @@ app.get('/api/vendors', authenticateToken, async (req, res) => {
             ORDER BY s.subcontractor_name
         `);
 
-        res.json(vendorsResult.rows);
+        // Get submissions for each vendor
+        const submissionsResult = await pool.query(`
+            SELECT
+                sub.subcontractor_id,
+                json_agg(
+                    json_build_object(
+                        'submission_id', sub.submission_id,
+                        'location_id', sub.location_id,
+                        'location_name', l.location_name,
+                        'submitted_date', sub.submitted_date,
+                        'ivr_ticket_number', i.ivr_ticket_number,
+                        'photo_count', sub.photo_count
+                    ) ORDER BY sub.submitted_date DESC
+                ) as submissions
+            FROM submissions sub
+            JOIN locations l ON sub.location_id = l.location_id
+            LEFT JOIN ivrs i ON sub.ivr_id = i.ivr_id
+            WHERE sub.subcontractor_id IS NOT NULL
+            GROUP BY sub.subcontractor_id
+        `);
+
+        // Map submissions to vendors
+        const submissionsByVendor = {};
+        submissionsResult.rows.forEach(row => {
+            submissionsByVendor[row.subcontractor_id] = row.submissions;
+        });
+
+        // Add submissions to each vendor
+        const vendorsWithSubmissions = vendorsResult.rows.map(vendor => ({
+            ...vendor,
+            submissions: submissionsByVendor[vendor.subcontractor_id] || []
+        }));
+
+        res.json(vendorsWithSubmissions);
     } catch (error) {
         console.error('Vendors error:', error);
         res.status(500).json({ error: 'Internal server error' });
