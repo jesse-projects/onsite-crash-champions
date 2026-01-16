@@ -32,6 +32,7 @@ services:
       DB_USER: onsite
       DB_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://onsite.jesseprojects.com}
     volumes:
       - ./backend:/app
       - /app/node_modules
