@@ -279,7 +279,7 @@ export default function Checklist() {
               </h2>
 
               <div className="table-wrapper" style={{ marginBottom: 'var(--space-lg)' }}>
-                <table className="table">
+                <table className="table checklist-table">
                   <thead>
                     <tr>
                       <th style={{ width: '50%' }}>Task</th>
@@ -301,7 +301,8 @@ export default function Checklist() {
                               value="complete"
                               checked={checklistData[taskId] === 'complete'}
                               onChange={() => handleTaskChange(taskId, 'complete')}
-                              style={{ width: '1.25rem', height: '1.25rem', cursor: 'pointer' }}
+                              required
+                              style={{ width: '1.125rem', height: '1.125rem', cursor: 'pointer' }}
                             />
                           </td>
                           <td style={{ textAlign: 'center' }}>
@@ -311,7 +312,8 @@ export default function Checklist() {
                               value="incomplete"
                               checked={checklistData[taskId] === 'incomplete'}
                               onChange={() => handleTaskChange(taskId, 'incomplete')}
-                              style={{ width: '1.25rem', height: '1.25rem', cursor: 'pointer' }}
+                              required
+                              style={{ width: '1.125rem', height: '1.125rem', cursor: 'pointer' }}
                             />
                           </td>
                           <td style={{ textAlign: 'center' }}>
@@ -321,7 +323,8 @@ export default function Checklist() {
                               value="na"
                               checked={checklistData[taskId] === 'na'}
                               onChange={() => handleTaskChange(taskId, 'na')}
-                              style={{ width: '1.25rem', height: '1.25rem', cursor: 'pointer' }}
+                              required
+                              style={{ width: '1.125rem', height: '1.125rem', cursor: 'pointer' }}
                             />
                           </td>
                         </tr>
@@ -429,7 +432,7 @@ export default function Checklist() {
                   type="checkbox"
                   checked={confirmations[0]}
                   onChange={(e) => setConfirmations(prev => [e.target.checked, prev[1]])}
-                  style={{ width: '1.25rem', height: '1.25rem' }}
+                  style={{ width: '1.125rem', height: '1.125rem', flexShrink: 0 }}
                 />
                 <span>Please confirm that all the information provided on this form has been completed to the best of your ability.</span>
               </label>
@@ -440,7 +443,7 @@ export default function Checklist() {
                   type="checkbox"
                   checked={confirmations[1]}
                   onChange={(e) => setConfirmations(prev => [prev[0], e.target.checked])}
-                  style={{ width: '1.25rem', height: '1.25rem' }}
+                  style={{ width: '1.125rem', height: '1.125rem', flexShrink: 0 }}
                 />
                 <span>I confirm that the information provided is accurate and complete.</span>
               </label>

@@ -195,7 +195,7 @@ a:hover {
 }
 
 .container-narrow {
-  max-width: 600px;
+  max-width: 900px;
 }
 
 .container-wide {
@@ -620,6 +620,26 @@ a:hover {
 
 .table tbody tr:last-child td {
   border-bottom: none;
+}
+
+/* Checklist-specific table styles */
+.table.checklist-table th,
+.table.checklist-table td {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.table.checklist-table th {
+  font-size: 0.8125rem;
+}
+
+.table.checklist-table tbody tr {
+  cursor: default;
+}
+
+.table.checklist-table tbody tr:hover {
+  background: transparent;
 }
 
 /* Stats Card */

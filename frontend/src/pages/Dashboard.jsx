@@ -317,7 +317,7 @@ export default function Dashboard() {
                   <div className="photo-preview-grid">
                     {selectedService.photos.map(photo => (
                       <div key={photo.photo_id} className="photo-preview">
-                        <img src={photo.file_path} alt={photo.photo_type} />
+                        <img src={`/api${photo.file_path}`} alt={photo.photo_type} />
                       </div>
                     ))}
                   </div>
