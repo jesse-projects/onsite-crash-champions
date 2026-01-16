@@ -7,7 +7,26 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
+
+// ========================================
+// ENVIRONMENT VALIDATION
+// ========================================
+const requiredEnvVars = ['JWT_SECRET', 'DB_PASSWORD'];
+const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingVars.length > 0) {
+    console.error(`❌ Missing required environment variables: ${missingVars.join(', ')}`);
+    process.exit(1);
+}
+
+if (process.env.JWT_SECRET && process.env.JWT_SECRET.length < 32) {
+    console.error('❌ JWT_SECRET must be at least 32 characters long');
+    process.exit(1);
+}
+
+console.log('✓ Environment variables validated');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,8 +50,32 @@ pool.connect((err, client, release) => {
     }
 });
 
-// Middleware
-app.use(cors());
+// ========================================
+// SECURITY MIDDLEWARE
+// ========================================
+
+// CORS - restrict to allowed origins
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+    : ['http://localhost:5173', 'http://localhost:3000']; // Development defaults
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, Postman, or same-origin)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.warn(`❌ Blocked CORS request from unauthorized origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
+
+console.log(`✓ CORS configured for origins: ${allowedOrigins.join(', ')}`);
+
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
@@ -67,6 +110,32 @@ const upload = multer({
         }
     }
 });
+
+// ========================================
+// RATE LIMITING
+// ========================================
+
+// Rate limiter for public checklist submission endpoint
+// Prevents abuse by limiting submissions per IP per location
+const submissionLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 submissions per IP per location per 15 minutes
+    message: 'Too many submissions from this IP, please try again later',
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+    keyGenerator: (req) => {
+        // Rate limit per IP + locationId combination
+        return `${req.ip}-${req.params.locationId}`;
+    },
+    handler: (req, res) => {
+        console.warn(`⚠️  Rate limit exceeded for IP ${req.ip} on location ${req.params.locationId}`);
+        res.status(429).json({
+            error: 'Too many submissions. Please wait 15 minutes before trying again.'
+        });
+    }
+});
+
+console.log('✓ Rate limiting configured (5 submissions per IP per location per 15min)');
 
 // JWT Authentication Middleware
 const authenticateToken = (req, res, next) => {
@@ -223,7 +292,8 @@ app.get('/api/checklist/:locationId', async (req, res) => {
 });
 
 // Submit checklist (V2 - creates Submission directly, no Service)
-app.post('/api/checklist/:locationId/submit', upload.array('photos', 10), async (req, res) => {
+// PUBLIC ENDPOINT - Rate limited to prevent abuse
+app.post('/api/checklist/:locationId/submit', submissionLimiter, upload.array('photos', 10), async (req, res) => {
     const client = await pool.connect();
 
     try {
@@ -583,7 +653,13 @@ app.get('/api/ivrs', authenticateToken, async (req, res) => {
 // ========================================
 
 // Debug endpoint - get all tables data
+// DISABLED IN PRODUCTION for security
 app.get('/api/debug', authenticateToken, async (req, res) => {
+    // Disable in production
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(404).json({ error: 'Not found' });
+    }
+
     try {
         const checklists = await pool.query('SELECT * FROM checklists ORDER BY checklist_id');
         const accountManagers = await pool.query('SELECT account_manager_id, first_name, last_name, email, phone, is_active FROM account_managers ORDER BY account_manager_id');
