@@ -11,8 +11,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+      - ./database/schema-v2.sql:/docker-entrypoint-initdb.d/01-schema-v2.sql
+      - ./database/seed-v2.sql:/docker-entrypoint-initdb.d/02-seed-v2.sql
     networks:
       - onsite-network
     restart: unless-stopped
