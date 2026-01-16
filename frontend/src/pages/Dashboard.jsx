@@ -5,6 +5,7 @@ import { dashboardAPI, authAPI } from '../utils/api';
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
+  const [selectedLocation, setSelectedLocation] = useState(null); // NEW: Location details view
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [expandedSections, setExpandedSections] = useState({});
   const [activeTab, setActiveTab] = useState('locations'); // 'locations' or 'submissions'
@@ -273,8 +274,8 @@ export default function Dashboard() {
                     return (
                       <tr
                         key={location.location_id}
-                        style={{ cursor: location.last_submission_id ? 'pointer' : 'default' }}
-                        onClick={() => location.last_submission_id && viewSubmissionDetails(location.last_submission_id)}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => setSelectedLocation(location)}
                       >
                         <td>
                           <div style={{ fontWeight: 500 }}>{location.location_name}</div>
@@ -399,15 +400,223 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Location Details Modal */}
+      {selectedLocation && !selectedSubmission && (
+        <div className="modal-overlay" onClick={() => setSelectedLocation(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                <div>
+                  <h2 style={{ marginBottom: '0.5rem' }}>{selectedLocation.location_name}</h2>
+                  <p className="text-secondary mono text-sm">{selectedLocation.location_id}</p>
+                  <p className="text-secondary text-sm" style={{ marginTop: '0.5rem' }}>
+                    {selectedLocation.address}, {selectedLocation.city}, {selectedLocation.state}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedLocation(null)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    fontSize: '1.5rem',
+                    cursor: 'pointer',
+                    color: 'var(--color-text-secondary)',
+                    padding: '0',
+                    lineHeight: 1
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="modal-body">
+              {/* Location Info */}
+              <div style={{ marginBottom: 'var(--space-xl)' }}>
+                <h3 style={{ marginBottom: 'var(--space-md)' }}>Location Information</h3>
+                <div className="grid grid-2" style={{ gap: 'var(--space-md)' }}>
+                  <div>
+                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                      Subcontractor
+                    </div>
+                    <div>{selectedLocation.subcontractor_name || 'Unassigned'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                      Account Manager
+                    </div>
+                    <div>{selectedLocation.account_manager_name || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                      Service Interval
+                    </div>
+                    <div>{selectedLocation.service_interval_days} days</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                      Current Status
+                    </div>
+                    <span className={getStatusBadge(getLocationStatus(selectedLocation))}>
+                      {getStatusLabel(getLocationStatus(selectedLocation))}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                      Last Service
+                    </div>
+                    <div>
+                      {selectedLocation.last_submission_date
+                        ? new Date(selectedLocation.last_submission_date).toLocaleDateString()
+                        : 'Never'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-tertiary" style={{ textTransform: 'uppercase', marginBottom: '0.25rem' }}>
+                      Days Since Service
+                    </div>
+                    <div>
+                      {selectedLocation.last_submission_date
+                        ? `${Math.floor((new Date() - new Date(selectedLocation.last_submission_date)) / (1000 * 60 * 60 * 24))} days`
+                        : '-'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Service History */}
+              <div>
+                <h3 style={{ marginBottom: 'var(--space-md)' }}>Service History</h3>
+                {(() => {
+                  const locationSubmissions = data?.submissions.filter(
+                    sub => sub.location_id === selectedLocation.location_id
+                  ).sort((a, b) => new Date(b.submitted_date) - new Date(a.submitted_date)) || [];
+
+                  if (locationSubmissions.length === 0) {
+                    return (
+                      <div style={{
+                        padding: 'var(--space-lg)',
+                        background: 'var(--color-bg-primary)',
+                        borderRadius: 'var(--radius-md)',
+                        textAlign: 'center'
+                      }} className="text-secondary">
+                        No service history available
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="table-wrapper" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                      <table className="table">
+                        <thead style={{ position: 'sticky', top: 0, background: 'var(--color-bg-secondary)', zIndex: 1 }}>
+                          <tr>
+                            <th>Submitted Date</th>
+                            <th>Submitted By</th>
+                            <th>IVR Number</th>
+                            <th>Photos</th>
+                            <th style={{ width: '100px' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {locationSubmissions.map(submission => (
+                            <tr key={submission.submission_id}>
+                              <td className="text-sm">
+                                {new Date(submission.submitted_date).toLocaleDateString()}
+                              </td>
+                              <td className="text-sm">{submission.submitted_by || 'N/A'}</td>
+                              <td className="mono text-sm">{submission.ivr_ticket_number || 'N/A'}</td>
+                              <td className="text-sm">
+                                {submission.photo_count || 0} photo{submission.photo_count !== 1 ? 's' : ''}
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => {
+                                    viewSubmissionDetails(submission.submission_id);
+                                  }}
+                                >
+                                  View
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Actions */}
+              <div style={{ marginTop: 'var(--space-xl)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--color-border)' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => copyChecklistUrl({ stopPropagation: () => {} }, selectedLocation.location_id)}
+                  style={{ width: '100%' }}
+                >
+                  Copy Checklist URL
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Submission Details Modal */}
       {selectedSubmission && (
         <div className="modal-overlay" onClick={() => { setSelectedSubmission(null); setExpandedSections({}); }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 style={{ marginBottom: '0.5rem' }}>{selectedSubmission.location_name}</h2>
-              <p className="text-secondary">
-                {selectedSubmission.address}, {selectedSubmission.city}, {selectedSubmission.state}
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                <div style={{ flex: 1 }}>
+                  {selectedLocation && (
+                    <button
+                      onClick={() => {
+                        setSelectedSubmission(null);
+                        setExpandedSections({});
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--color-primary)',
+                        cursor: 'pointer',
+                        padding: '0',
+                        marginBottom: 'var(--space-sm)',
+                        fontSize: '0.875rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      ← Back to {selectedLocation.location_name}
+                    </button>
+                  )}
+                  <h2 style={{ marginBottom: '0.5rem' }}>{selectedSubmission.location_name}</h2>
+                  <p className="text-secondary">
+                    {selectedSubmission.address}, {selectedSubmission.city}, {selectedSubmission.state}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setSelectedSubmission(null);
+                    setExpandedSections({});
+                    if (!selectedLocation) {
+                      // If we came from submissions tab (not from location details), just close
+                    }
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    fontSize: '1.5rem',
+                    cursor: 'pointer',
+                    color: 'var(--color-text-secondary)',
+                    padding: '0',
+                    lineHeight: 1
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             <div className="modal-body">
