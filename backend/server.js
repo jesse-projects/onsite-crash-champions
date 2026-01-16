@@ -157,7 +157,7 @@ app.post('/api/login', async (req, res) => {
 // CHECKLIST ROUTES (PUBLIC - No Auth Required)
 // ========================================
 
-// Get checklist for evergreen link
+// Get checklist for evergreen link (V2 - no Services table)
 app.get('/api/checklist/:locationId', async (req, res) => {
     try {
         const { locationId } = req.params;
@@ -192,53 +192,6 @@ app.get('/api/checklist/:locationId', async (req, res) => {
             currentIvr = ivrResult.rows[0];
         }
 
-        // Get or create current service
-        let service = null;
-        if (currentIvr) {
-            const serviceResult = await pool.query(`
-                SELECT * FROM services
-                WHERE location_id = $1
-                AND ivr_id = $2
-                AND status IN ('Not Started', 'In Progress')
-                ORDER BY created_date DESC
-                LIMIT 1
-            `, [locationId, currentIvr.ivr_id]);
-
-            if (serviceResult.rows.length > 0) {
-                service = serviceResult.rows[0];
-            } else {
-                // Create new service (just-in-time)
-                const serviceCount = await pool.query(
-                    'SELECT COUNT(*) as count FROM services WHERE location_id = $1',
-                    [locationId]
-                );
-                const nextNumber = parseInt(serviceCount.rows[0].count) + 1;
-                const serviceId = `${locationId}_${location.subcontractor_id}_${String(nextNumber).padStart(5, '0')}`;
-
-                const insertResult = await pool.query(`
-                    INSERT INTO services (
-                        service_id, location_id, checklist_id, ivr_id, internal_wo,
-                        subcontractor_id, account_manager_id, period_label, service_number,
-                        evergreen_link, status
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'Not Started')
-                    RETURNING *
-                `, [
-                    serviceId,
-                    locationId,
-                    location.checklist_id,
-                    currentIvr.ivr_id,
-                    location.internal_wo,
-                    location.subcontractor_id,
-                    location.account_manager_id,
-                    currentIvr.period_label,
-                    nextNumber,
-                    `/checklist/${locationId}`
-                ]);
-
-                service = insertResult.rows[0];
-            }
-        }
-
         res.json({
             location: {
                 id: location.location_id,
@@ -256,11 +209,6 @@ app.get('/api/checklist/:locationId', async (req, res) => {
                 expirationDate: currentIvr.expiration_date,
                 periodLabel: currentIvr.period_label
             } : null,
-            service: service ? {
-                id: service.service_id,
-                status: service.status,
-                serviceNumber: service.service_number
-            } : null,
             checklist: {
                 id: location.checklist_id,
                 name: location.checklist_name,
@@ -274,7 +222,7 @@ app.get('/api/checklist/:locationId', async (req, res) => {
     }
 });
 
-// Submit checklist
+// Submit checklist (V2 - creates Submission directly, no Service)
 app.post('/api/checklist/:locationId/submit', upload.array('photos', 10), async (req, res) => {
     const client = await pool.connect();
 
@@ -282,7 +230,7 @@ app.post('/api/checklist/:locationId/submit', upload.array('photos', 10), async 
         await client.query('BEGIN');
 
         const { locationId } = req.params;
-        const { serviceId, checklistData, notes, submittedBy } = req.body;
+        const { checklistData, notes, submittedBy } = req.body;
         const photos = req.files || [];
 
         // Parse checklist data if it's a string
@@ -291,20 +239,57 @@ app.post('/api/checklist/:locationId/submit', upload.array('photos', 10), async 
             parsedChecklistData = JSON.parse(checklistData);
         }
 
-        // Validate photo count (minimum 3 for demo)
+        // Validate photo count (minimum 3)
         if (photos.length < 3) {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Minimum 3 photos required' });
         }
 
+        // Get location and current IVR
+        const locationResult = await client.query(
+            'SELECT * FROM locations WHERE location_id = $1',
+            [locationId]
+        );
+
+        if (locationResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Location not found' });
+        }
+
+        const location = locationResult.rows[0];
+
+        // Get current active IVR
+        const ivrResult = await client.query(`
+            SELECT * FROM ivrs
+            WHERE location_id = $1
+            AND start_date <= CURRENT_DATE
+            AND expiration_date >= CURRENT_DATE
+            ORDER BY start_date DESC
+            LIMIT 1
+        `, [locationId]);
+
+        const currentIvr = ivrResult.rows.length > 0 ? ivrResult.rows[0] : null;
+
         // Create submission
         const submissionId = uuidv4();
         const submissionResult = await client.query(`
-            INSERT INTO checklist_submissions (
-                submission_id, service_id, submitted_by, checklist_data, photo_count, notes
-            ) VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO submissions (
+                submission_id, location_id, checklist_id, ivr_id, subcontractor_id,
+                account_manager_id, submitted_by, checklist_data, photo_count, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-        `, [submissionId, serviceId, submittedBy, parsedChecklistData, photos.length, notes]);
+        `, [
+            submissionId,
+            locationId,
+            location.checklist_id,
+            currentIvr?.ivr_id || null,
+            location.subcontractor_id,
+            location.account_manager_id,
+            submittedBy,
+            parsedChecklistData,
+            photos.length,
+            notes
+        ]);
 
         const submission = submissionResult.rows[0];
 
@@ -323,13 +308,6 @@ app.post('/api/checklist/:locationId/submit', upload.array('photos', 10), async 
                 i === 0 ? 'Before' : i === 1 ? 'After' : 'Area Specific'
             ]);
         }
-
-        // Update service status
-        await client.query(`
-            UPDATE services
-            SET status = 'Completed', submitted_date = CURRENT_TIMESTAMP
-            WHERE service_id = $1
-        `, [serviceId]);
 
         await client.query('COMMIT');
 
@@ -351,30 +329,40 @@ app.post('/api/checklist/:locationId/submit', upload.array('photos', 10), async 
 // DASHBOARD ROUTES (Require Auth)
 // ========================================
 
-// Get dashboard data (everyone sees all locations now)
+// Get dashboard data (V2 - calculates staleness from submissions)
 app.get('/api/dashboard', authenticateToken, async (req, res) => {
     try {
-        // Get ALL locations (no filtering by account manager)
+        // Get ALL locations (everyone sees all)
         const locationsResult = await pool.query(`
             SELECT l.*, s.subcontractor_name,
-                   am.account_manager_id, am.first_name as am_first_name, am.last_name as am_last_name
+                   am.account_manager_id, am.first_name as am_first_name, am.last_name as am_last_name,
+                   sub_latest.submitted_date as last_submission_date,
+                   sub_latest.submission_id as last_submission_id
             FROM locations l
             LEFT JOIN subcontractors s ON l.subcontractor_id = s.subcontractor_id
             LEFT JOIN account_managers am ON l.account_manager_id = am.account_manager_id
+            LEFT JOIN LATERAL (
+                SELECT submission_id, submitted_date
+                FROM submissions
+                WHERE location_id = l.location_id
+                ORDER BY submitted_date DESC
+                LIMIT 1
+            ) sub_latest ON true
             WHERE l.is_active = true
             ORDER BY l.location_name
         `);
 
-        // Get ALL services (no filtering by account manager)
-        const servicesResult = await pool.query(`
-            SELECT sv.*, l.location_name, sub.subcontractor_name, i.ivr_ticket_number, i.period_label,
+        // Get ALL recent submissions (limit to last 100)
+        const submissionsResult = await pool.query(`
+            SELECT sub.*, l.location_name, l.location_id, l.service_interval_days,
+                   s.subcontractor_name, i.ivr_ticket_number, i.period_label,
                    am.account_manager_id, am.first_name as am_first_name, am.last_name as am_last_name
-            FROM services sv
-            JOIN locations l ON sv.location_id = l.location_id
-            LEFT JOIN subcontractors sub ON sv.subcontractor_id = sub.subcontractor_id
-            LEFT JOIN ivrs i ON sv.ivr_id = i.ivr_id
-            LEFT JOIN account_managers am ON sv.account_manager_id = am.account_manager_id
-            ORDER BY sv.scheduled_date DESC, sv.created_date DESC
+            FROM submissions sub
+            JOIN locations l ON sub.location_id = l.location_id
+            LEFT JOIN subcontractors s ON sub.subcontractor_id = s.subcontractor_id
+            LEFT JOIN ivrs i ON sub.ivr_id = i.ivr_id
+            LEFT JOIN account_managers am ON sub.account_manager_id = am.account_manager_id
+            ORDER BY sub.submitted_date DESC
             LIMIT 100
         `);
 
@@ -387,18 +375,42 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
             ORDER BY am.first_name, am.last_name
         `);
 
-        // Calculate statistics (frontend will filter these based on selected AM)
+        // Calculate staleness statistics
+        const now = new Date();
+        let currentCount = 0;
+        let staleCount = 0;
+        let overdueCount = 0;
+
+        locationsResult.rows.forEach(loc => {
+            if (!loc.last_submission_date) {
+                overdueCount++; // Never serviced = overdue
+                return;
+            }
+
+            const lastService = new Date(loc.last_submission_date);
+            const daysSinceService = Math.floor((now - lastService) / (1000 * 60 * 60 * 24));
+            const interval = loc.service_interval_days || 7;
+
+            if (daysSinceService <= interval) {
+                currentCount++; // Within interval = current
+            } else if (daysSinceService <= interval * 1.5) {
+                staleCount++; // Up to 50% overdue = stale
+            } else {
+                overdueCount++; // More than 50% overdue = overdue
+            }
+        });
+
         const stats = {
             totalLocations: locationsResult.rows.length,
-            pendingServices: servicesResult.rows.filter(s => s.status === 'Not Started').length,
-            completedServices: servicesResult.rows.filter(s => s.status === 'Completed').length,
-            overdueServices: servicesResult.rows.filter(s => s.status === 'Overdue').length
+            currentServices: currentCount,
+            staleServices: staleCount,
+            overdueServices: overdueCount
         };
 
         res.json({
             stats,
             locations: locationsResult.rows,
-            services: servicesResult.rows,
+            submissions: submissionsResult.rows,
             accountManagers: accountManagersResult.rows
         });
     } catch (error) {
@@ -407,49 +419,45 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
     }
 });
 
-// Get service details
-app.get('/api/services/:serviceId', authenticateToken, async (req, res) => {
+// Get submission details
+app.get('/api/submissions/:submissionId', authenticateToken, async (req, res) => {
     try {
-        const { serviceId } = req.params;
+        const { submissionId } = req.params;
 
-        // Get service with all related data
-        const serviceResult = await pool.query(`
+        // Get submission with all related data
+        const submissionResult = await pool.query(`
             SELECT
-                sv.*,
+                sub.*,
                 l.location_name, l.address, l.city, l.state,
-                sub.subcontractor_name,
+                s.subcontractor_name,
                 i.ivr_ticket_number, i.period_label,
-                cs.submission_id, cs.submitted_by, cs.submitted_date, cs.checklist_data, cs.notes
-            FROM services sv
-            JOIN locations l ON sv.location_id = l.location_id
-            LEFT JOIN subcontractors sub ON sv.subcontractor_id = sub.subcontractor_id
-            LEFT JOIN ivrs i ON sv.ivr_id = i.ivr_id
-            LEFT JOIN checklist_submissions cs ON sv.service_id = cs.service_id
-            WHERE sv.service_id = $1
-        `, [serviceId]);
+                c.checklist_config
+            FROM submissions sub
+            JOIN locations l ON sub.location_id = l.location_id
+            LEFT JOIN subcontractors s ON sub.subcontractor_id = s.subcontractor_id
+            LEFT JOIN ivrs i ON sub.ivr_id = i.ivr_id
+            LEFT JOIN checklists c ON sub.checklist_id = c.checklist_id
+            WHERE sub.submission_id = $1
+        `, [submissionId]);
 
-        if (serviceResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Service not found' });
+        if (submissionResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Submission not found' });
         }
 
-        const service = serviceResult.rows[0];
+        const submission = submissionResult.rows[0];
 
-        // Get photos if submission exists
-        let photos = [];
-        if (service.submission_id) {
-            const photosResult = await pool.query(
-                'SELECT * FROM photos WHERE submission_id = $1',
-                [service.submission_id]
-            );
-            photos = photosResult.rows;
-        }
+        // Get photos
+        const photosResult = await pool.query(
+            'SELECT * FROM photos WHERE submission_id = $1',
+            [submissionId]
+        );
 
         res.json({
-            ...service,
-            photos
+            ...submission,
+            photos: photosResult.rows
         });
     } catch (error) {
-        console.error('Get service error:', error);
+        console.error('Get submission error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
@@ -458,7 +466,7 @@ app.get('/api/services/:serviceId', authenticateToken, async (req, res) => {
 // LOCATIONS ROUTES
 // ========================================
 
-// Get all locations (everyone sees all locations now)
+// Get all locations (everyone sees all)
 app.get('/api/locations', authenticateToken, async (req, res) => {
     try {
         const result = await pool.query(`
@@ -483,18 +491,24 @@ app.get('/api/locations', authenticateToken, async (req, res) => {
 // VENDORS (SUBCONTRACTORS) ROUTES
 // ========================================
 
-// Get all vendors with their assigned locations
+// Get all vendors with their assigned locations and submissions
 app.get('/api/vendors', authenticateToken, async (req, res) => {
     try {
+        // Get vendors with locations
         const vendorsResult = await pool.query(`
             SELECT s.*,
                    json_agg(
-                       json_build_object(
+                       DISTINCT jsonb_build_object(
                            'location_id', l.location_id,
                            'location_name', l.location_name,
                            'city', l.city,
                            'state', l.state
-                       ) ORDER BY l.location_name
+                       ) ORDER BY jsonb_build_object(
+                           'location_id', l.location_id,
+                           'location_name', l.location_name,
+                           'city', l.city,
+                           'state', l.state
+                       )
                    ) FILTER (WHERE l.location_id IS NOT NULL) as locations
             FROM subcontractors s
             LEFT JOIN locations l ON s.subcontractor_id = l.subcontractor_id AND l.is_active = true
@@ -503,7 +517,40 @@ app.get('/api/vendors', authenticateToken, async (req, res) => {
             ORDER BY s.subcontractor_name
         `);
 
-        res.json(vendorsResult.rows);
+        // Get submissions for each vendor
+        const submissionsResult = await pool.query(`
+            SELECT
+                sub.subcontractor_id,
+                json_agg(
+                    json_build_object(
+                        'submission_id', sub.submission_id,
+                        'location_id', sub.location_id,
+                        'location_name', l.location_name,
+                        'submitted_date', sub.submitted_date,
+                        'ivr_ticket_number', i.ivr_ticket_number,
+                        'photo_count', sub.photo_count
+                    ) ORDER BY sub.submitted_date DESC
+                ) as submissions
+            FROM submissions sub
+            JOIN locations l ON sub.location_id = l.location_id
+            LEFT JOIN ivrs i ON sub.ivr_id = i.ivr_id
+            WHERE sub.subcontractor_id IS NOT NULL
+            GROUP BY sub.subcontractor_id
+        `);
+
+        // Map submissions to vendors
+        const submissionsByVendor = {};
+        submissionsResult.rows.forEach(row => {
+            submissionsByVendor[row.subcontractor_id] = row.submissions;
+        });
+
+        // Add submissions to each vendor
+        const vendorsWithSubmissions = vendorsResult.rows.map(vendor => ({
+            ...vendor,
+            submissions: submissionsByVendor[vendor.subcontractor_id] || []
+        }));
+
+        res.json(vendorsWithSubmissions);
     } catch (error) {
         console.error('Vendors error:', error);
         res.status(500).json({ error: 'Internal server error' });
@@ -543,8 +590,7 @@ app.get('/api/debug', authenticateToken, async (req, res) => {
         const subcontractors = await pool.query('SELECT * FROM subcontractors ORDER BY subcontractor_id');
         const locations = await pool.query('SELECT * FROM locations ORDER BY location_id');
         const ivrs = await pool.query('SELECT * FROM ivrs ORDER BY start_date DESC');
-        const services = await pool.query('SELECT * FROM services ORDER BY created_date DESC LIMIT 50');
-        const submissions = await pool.query('SELECT * FROM checklist_submissions ORDER BY submitted_date DESC LIMIT 20');
+        const submissions = await pool.query('SELECT * FROM submissions ORDER BY submitted_date DESC LIMIT 20');
         const photos = await pool.query('SELECT * FROM photos ORDER BY upload_date DESC LIMIT 50');
 
         res.json({
@@ -553,8 +599,7 @@ app.get('/api/debug', authenticateToken, async (req, res) => {
             subcontractors: subcontractors.rows,
             locations: locations.rows,
             ivrs: ivrs.rows,
-            services: services.rows,
-            checklist_submissions: submissions.rows,
+            submissions: submissions.rows,
             photos: photos.rows
         });
     } catch (error) {
