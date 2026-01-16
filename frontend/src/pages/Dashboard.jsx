@@ -403,7 +403,7 @@ export default function Dashboard() {
       {/* Location Details Modal */}
       {selectedLocation && !selectedSubmission && (
         <div className="modal-overlay" onClick={() => setSelectedLocation(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content modal-wide" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                 <div>
@@ -507,7 +507,7 @@ export default function Dashboard() {
 
                   return (
                     <div className="table-wrapper" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                      <table className="table">
+                      <table className="table" style={{ fontSize: '0.875rem' }}>
                         <thead style={{ position: 'sticky', top: 0, background: 'var(--color-bg-secondary)', zIndex: 1 }}>
                           <tr>
                             <th>Submitted Date</th>
@@ -564,8 +564,8 @@ export default function Dashboard() {
 
       {/* Submission Details Modal */}
       {selectedSubmission && (
-        <div className="modal-overlay" onClick={() => { setSelectedSubmission(null); setExpandedSections({}); }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => { setSelectedSubmission(null); setSelectedLocation(null); setExpandedSections({}); }}>
+          <div className="modal-content modal-wide" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                 <div style={{ flex: 1 }}>
@@ -599,10 +599,8 @@ export default function Dashboard() {
                 <button
                   onClick={() => {
                     setSelectedSubmission(null);
+                    setSelectedLocation(null);
                     setExpandedSections({});
-                    if (!selectedLocation) {
-                      // If we came from submissions tab (not from location details), just close
-                    }
                   }}
                   style={{
                     background: 'transparent',

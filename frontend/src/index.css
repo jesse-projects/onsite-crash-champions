@@ -553,6 +553,16 @@ a:hover {
   animation: slideUp var(--transition-base);
 }
 
+/* Wider modal for location/vendor details with tables */
+.modal-content.modal-wide {
+  max-width: 900px;
+}
+
+/* Ensure consistent border radius on all corners */
+.modal-content * {
+  border-radius: inherit;
+}
+
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -790,5 +800,66 @@ a:hover {
 
   .modal-content {
     margin: var(--space-md);
+  }
+
+  /* Mobile: Convert tables to card layout */
+  .table-responsive-mobile {
+    display: block;
+    width: 100%;
+    overflow-x: visible !important;
+  }
+
+  .table-responsive-mobile table {
+    display: block;
+    width: 100%;
+  }
+
+  .table-responsive-mobile thead {
+    display: none;
+  }
+
+  .table-responsive-mobile tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .table-responsive-mobile tr {
+    display: block;
+    margin-bottom: var(--space-md);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+  }
+
+  .table-responsive-mobile td {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .table-responsive-mobile td:last-child {
+    border-bottom: none;
+  }
+
+  .table-responsive-mobile td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    margin-right: var(--space-md);
+    flex-shrink: 0;
+  }
+
+  .table-responsive-mobile td > * {
+    margin-left: auto;
+    text-align: right;
+  }
+
+  /* Reduce table padding in modals on mobile */
+  .modal-content .table th,
+  .modal-content .table td {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: 0.8rem;
   }
 }
