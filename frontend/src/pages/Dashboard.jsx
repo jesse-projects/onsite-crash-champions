@@ -7,6 +7,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [expandedSections, setExpandedSections] = useState({});
+  const [activeTab, setActiveTab] = useState('locations'); // 'locations' or 'submissions'
   const [filter, setFilter] = useState({ status: 'all', search: '', accountManager: 'all' });
   const user = authAPI.getUser();
 
@@ -146,6 +147,44 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Tabs */}
+        <div style={{ marginBottom: 'var(--space-lg)', borderBottom: '2px solid var(--color-border)' }}>
+          <div style={{ display: 'flex', gap: 'var(--space-md)' }}>
+            <button
+              onClick={() => setActiveTab('locations')}
+              style={{
+                padding: 'var(--space-md) var(--space-lg)',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `3px solid ${activeTab === 'locations' ? 'var(--color-primary)' : 'transparent'}`,
+                color: activeTab === 'locations' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                fontWeight: activeTab === 'locations' ? 600 : 400,
+                cursor: 'pointer',
+                fontSize: '1rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              Locations
+            </button>
+            <button
+              onClick={() => setActiveTab('submissions')}
+              style={{
+                padding: 'var(--space-md) var(--space-lg)',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: `3px solid ${activeTab === 'submissions' ? 'var(--color-primary)' : 'transparent'}`,
+                color: activeTab === 'submissions' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                fontWeight: activeTab === 'submissions' ? 600 : 400,
+                cursor: 'pointer',
+                fontSize: '1rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              Submissions
+            </button>
+          </div>
+        </div>
+
         {/* Filters */}
         <div className="card" style={{ marginBottom: 'var(--space-xl)' }}>
           <div style={{ display: 'flex', gap: 'var(--space-lg)', flexWrap: 'wrap' }}>
@@ -193,15 +232,16 @@ export default function Dashboard() {
         </div>
 
         {/* Locations Table */}
-        <div className="card" style={{ padding: 0 }}>
-          <div style={{ padding: 'var(--space-xl)', borderBottom: '1px solid var(--color-border)' }}>
-            <h2 className="card-title" style={{ marginBottom: 0 }}>
-              Location Status
-            </h2>
-            <p className="text-secondary text-sm" style={{ marginTop: 'var(--space-xs)' }}>
-              {filteredLocations.length} location{filteredLocations.length !== 1 ? 's' : ''}
-            </p>
-          </div>
+        {activeTab === 'locations' && (
+          <div className="card" style={{ padding: 0 }}>
+            <div style={{ padding: 'var(--space-xl)', borderBottom: '1px solid var(--color-border)' }}>
+              <h2 className="card-title" style={{ marginBottom: 0 }}>
+                Location Status
+              </h2>
+              <p className="text-secondary text-sm" style={{ marginTop: 'var(--space-xs)' }}>
+                {filteredLocations.length} location{filteredLocations.length !== 1 ? 's' : ''}
+              </p>
+            </div>
 
           <div className="table-wrapper">
             <table className="table">
@@ -275,6 +315,88 @@ export default function Dashboard() {
             </table>
           </div>
         </div>
+        )}
+
+        {/* Submissions Table */}
+        {activeTab === 'submissions' && (
+          <div className="card" style={{ padding: 0 }}>
+            <div style={{ padding: 'var(--space-xl)', borderBottom: '1px solid var(--color-border)' }}>
+              <h2 className="card-title" style={{ marginBottom: 0 }}>
+                All Submissions
+              </h2>
+              <p className="text-secondary text-sm" style={{ marginTop: 'var(--space-xs)' }}>
+                {data?.submissions.length || 0} submission{data?.submissions.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+
+            <div className="table-wrapper">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Location</th>
+                    <th>Subcontractor</th>
+                    <th>Submitted Date</th>
+                    <th>IVR Number</th>
+                    <th>Photos</th>
+                    <th style={{ width: '120px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(!data?.submissions || data.submissions.length === 0) ? (
+                    <tr>
+                      <td colSpan="6" className="text-center text-secondary" style={{ padding: 'var(--space-2xl)' }}>
+                        No submissions found
+                      </td>
+                    </tr>
+                  ) : (
+                    data.submissions
+                      .filter(sub => {
+                        const matchesSearch = !filter.search ||
+                          sub.location_name?.toLowerCase().includes(filter.search.toLowerCase()) ||
+                          sub.location_id?.toLowerCase().includes(filter.search.toLowerCase());
+                        const matchesAccountManager = filter.accountManager === 'all' || sub.account_manager_id === filter.accountManager;
+                        return matchesSearch && matchesAccountManager;
+                      })
+                      .sort((a, b) => new Date(b.submitted_date) - new Date(a.submitted_date))
+                      .map(submission => (
+                        <tr
+                          key={submission.submission_id}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => viewSubmissionDetails(submission.submission_id)}
+                        >
+                          <td>
+                            <div style={{ fontWeight: 500 }}>{submission.location_name}</div>
+                            <div className="text-secondary text-sm mono">{submission.location_id}</div>
+                          </td>
+                          <td className="text-sm">{submission.subcontractor_name || 'N/A'}</td>
+                          <td className="text-sm">
+                            {submission.submitted_date
+                              ? new Date(submission.submitted_date).toLocaleDateString()
+                              : 'N/A'}
+                          </td>
+                          <td className="mono text-sm">{submission.ivr_ticket_number || 'N/A'}</td>
+                          <td className="text-sm">
+                            {submission.photo_count || 0} photo{submission.photo_count !== 1 ? 's' : ''}
+                          </td>
+                          <td>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                viewSubmissionDetails(submission.submission_id);
+                              }}
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Submission Details Modal */}
