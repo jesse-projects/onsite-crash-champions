@@ -6,6 +6,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
+  const [expandedSections, setExpandedSections] = useState({});
   const [filter, setFilter] = useState({ status: 'all', search: '', accountManager: 'all' });
   const user = authAPI.getUser();
 
@@ -28,9 +29,17 @@ export default function Dashboard() {
     try {
       const response = await dashboardAPI.getSubmissionDetails(submissionId);
       setSelectedSubmission(response.data);
+      setExpandedSections({}); // Reset expanded sections for new submission
     } catch (err) {
       console.error('Failed to load submission details:', err);
     }
+  };
+
+  const toggleSection = (sectionId) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
   };
 
   const copyChecklistUrl = (e, locationId) => {
@@ -270,7 +279,7 @@ export default function Dashboard() {
 
       {/* Submission Details Modal */}
       {selectedSubmission && (
-        <div className="modal-overlay" onClick={() => setSelectedSubmission(null)}>
+        <div className="modal-overlay" onClick={() => { setSelectedSubmission(null); setExpandedSections({}); }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 style={{ marginBottom: '0.5rem' }}>{selectedSubmission.location_name}</h2>
@@ -311,18 +320,94 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Checklist Data */}
-              {selectedSubmission.checklist_data && (
+              {/* Checklist Data - Collapsible Sections */}
+              {selectedSubmission.checklist_data && selectedSubmission.checklist_config && (
                 <div style={{ marginBottom: 'var(--space-xl)' }}>
                   <h3 style={{ marginBottom: 'var(--space-md)' }}>Checklist Responses</h3>
-                  <div style={{ background: 'var(--color-bg-primary)', padding: 'var(--space-lg)', borderRadius: 'var(--radius-md)' }}>
-                    {Object.entries(selectedSubmission.checklist_data).map(([key, value]) => (
-                      <div key={key} style={{ marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
-                        <span style={{ fontSize: '1.25rem' }}>{value ? '✓' : '✗'}</span>
-                        <span style={{ textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
+                  {selectedSubmission.checklist_config.sections?.map((section, idx) => {
+                    const isExpanded = expandedSections[section.id] || false;
+
+                    // Calculate section status
+                    const sectionTasks = section.tasks.map((task, taskIdx) => {
+                      const taskId = `${section.id}_${taskIdx}`;
+                      return selectedSubmission.checklist_data[taskId];
+                    });
+
+                    const allComplete = sectionTasks.every(val => val === 'complete');
+                    const anyIncomplete = sectionTasks.some(val => val === 'incomplete' || val === 'n/a');
+                    const hasNotes = selectedSubmission.checklist_data[`${section.id}_notes`];
+
+                    // Determine icon and color
+                    let icon = '?';
+                    let iconColor = 'var(--color-warning)';
+
+                    if (allComplete && !hasNotes) {
+                      icon = '✓';
+                      iconColor = 'var(--color-success)';
+                    } else if (anyIncomplete) {
+                      icon = '✗';
+                      iconColor = 'var(--color-error)';
+                    } else if (hasNotes) {
+                      icon = '?';
+                      iconColor = 'var(--color-warning)';
+                    }
+
+                    return (
+                      <div key={section.id} style={{ marginBottom: 'var(--space-md)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                        <div
+                          onClick={() => toggleSection(section.id)}
+                          style={{
+                            padding: 'var(--space-md)',
+                            background: 'var(--color-bg-secondary)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 'var(--space-md)',
+                            transition: 'background 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-bg-tertiary)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'var(--color-bg-secondary)'}
+                        >
+                          <span style={{ fontSize: '1.5rem', color: iconColor, fontWeight: 'bold', minWidth: '24px' }}>
+                            {icon}
+                          </span>
+                          <span style={{ flex: 1, fontWeight: 500 }}>
+                            {section.title}
+                          </span>
+                          <span style={{ fontSize: '0.875rem', color: 'var(--color-text-tertiary)' }}>
+                            {isExpanded ? '▼' : '▶'}
+                          </span>
+                        </div>
+
+                        {isExpanded && (
+                          <div style={{ padding: 'var(--space-md)', background: 'var(--color-bg-primary)' }}>
+                            {section.tasks.map((task, taskIdx) => {
+                              const taskId = `${section.id}_${taskIdx}`;
+                              const value = selectedSubmission.checklist_data[taskId];
+
+                              return (
+                                <div key={taskId} style={{ marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+                                  <span style={{ fontSize: '1.125rem', minWidth: '20px' }}>
+                                    {value === 'complete' ? '✓' : value === 'incomplete' ? '✗' : value === 'n/a' ? '—' : '?'}
+                                  </span>
+                                  <span className="text-sm">{task}</span>
+                                </div>
+                              );
+                            })}
+
+                            {hasNotes && (
+                              <div style={{ marginTop: 'var(--space-md)', paddingTop: 'var(--space-md)', borderTop: '1px solid var(--color-border)' }}>
+                                <div className="text-xs text-tertiary" style={{ marginBottom: 'var(--space-xs)' }}>Notes:</div>
+                                <div className="text-sm" style={{ fontStyle: 'italic' }}>
+                                  {selectedSubmission.checklist_data[`${section.id}_notes`]}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -353,7 +438,7 @@ export default function Dashboard() {
 
             <div className="modal-footer">
               <button
-                onClick={() => setSelectedSubmission(null)}
+                onClick={() => { setSelectedSubmission(null); setExpandedSections({}); }}
                 className="btn btn-secondary"
               >
                 Close
