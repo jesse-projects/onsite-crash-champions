@@ -654,11 +654,13 @@ app.get('/api/ivrs', authenticateToken, async (req, res) => {
 
 // Debug endpoint - get all tables data
 // DISABLED IN PRODUCTION for security
-app.get('/api/debug', authenticateToken, async (req, res) => {
-    // Disable in production
+app.get('/api/debug', (req, res, next) => {
+    // Disable in production - return 404 to hide endpoint
     if (process.env.NODE_ENV === 'production') {
         return res.status(404).json({ error: 'Not found' });
     }
+    next();
+}, authenticateToken, async (req, res) => {
 
     try {
         const checklists = await pool.query('SELECT * FROM checklists ORDER BY checklist_id');
