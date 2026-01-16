@@ -10,6 +10,8 @@ export default function Vendors() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc', vendorId: null, tab: null });
   const [selectedVendor, setSelectedVendor] = useState(null);
+  const [selectedSubmission, setSelectedSubmission] = useState(null);
+  const [expandedSections, setExpandedSections] = useState({});
 
   useEffect(() => {
     loadVendors();
@@ -32,6 +34,23 @@ export default function Vendors() {
     navigator.clipboard.writeText(url).then(() => {
       alert('Checklist URL copied to clipboard!');
     });
+  };
+
+  const viewSubmissionDetails = async (submissionId) => {
+    try {
+      const response = await dashboardAPI.getSubmissionDetails(submissionId);
+      setSelectedSubmission(response.data);
+      setExpandedSections({}); // Reset expanded sections for new submission
+    } catch (err) {
+      console.error('Failed to load submission details:', err);
+    }
+  };
+
+  const toggleSection = (sectionId) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [sectionId]: !prev[sectionId]
+    }));
   };
 
   const setVendorTab = (vendorId, tab) => {
@@ -359,7 +378,13 @@ export default function Vendors() {
                             vendor.subcontractor_id,
                             'submissions'
                           ).map(sub => (
-                            <tr key={sub.submission_id}>
+                            <tr
+                              key={sub.submission_id}
+                              onClick={() => viewSubmissionDetails(sub.submission_id)}
+                              style={{ cursor: 'pointer' }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-bg-tertiary)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = ''}
+                            >
                               <td>
                                 <div style={{ fontWeight: 500 }}>{sub.location_name}</div>
                                 <div className="text-secondary text-sm mono">{sub.location_id}</div>
